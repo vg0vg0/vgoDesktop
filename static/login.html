@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>VGO Desktop</title>
+
+    <!-- Bootstrap CSS -->
+    <link href="css/bootstrap.min.css" rel="stylesheet">
+    <!-- bootstrap theme -->
+    <link href="css/bootstrap-theme.css" rel="stylesheet">
+    <!--external css-->
+    <!-- font icon -->
+    <link href="css/elegant-icons-style.css" rel="stylesheet" />
+    <link href="css/font-awesome.css" rel="stylesheet" />
+    <!-- Custom styles -->
+    <link href="css/style.css" rel="stylesheet">
+    <link href="css/style-responsive.css" rel="stylesheet" />
+    <script src='converters.js'></script>
+    <script src="curve25519_.js"></script>
+    <script src="curve25519.js"></script>
+    <script src="aes.js"></script>
+    <script src="sha256.js"></script>
+    <script src="nxtaddress.js"></script>
+    <script src="jsbn.js"></script>
+    <script src="jsbn2.js"></script>
+    <script src='nrs.encryption.js'></script>
+    <script>
+        const { ipcRenderer, remote } = require('electron')
+        var i18n = new (require('../build/renderer/i18n'))
+        const config = require('../build/config')
+        const { vgoDB } = require('../build/renderer/vgo/manager')
+        const exec = require('child_process').exec;
+
+        function getPublicKeySlice(publicKeyHex) {
+            var hex = converters.hexStringToByteArray(publicKeyHex);
+            var account = NRS.simpleHash(hex);
+            account = converters.byteArrayToHexString(account);
+            return account.slice(0, 16);
+        }
+
+        function calcNonce(userPkHex) {
+            let time = Date.now();
+            time = time - time % (1000 * 60 * 60 * 24 * 5);
+            time = userPkHex + time;
+            //console.log(time);
+            time = converters.stringToByteArray(time);
+            let nonce = NRS.simpleHash(time);
+            let x = converters.byteArrayToHexString(nonce);
+            return nonce;
+        }
+
+        function createSharedKey(userSec, userPkHex) {
+            var commonSecret = "http://www.vG0Resource.c0m";
+            var commonSecHex = converters.stringToHexString(commonSecret);
+            //
+            var userPrivateKey = NRS.getPrivateKey(userSec);
+            var commomPublicKey = NRS.getPublicKey(commonSecHex);
+            commomPublicKey = converters.hexStringToByteArray(commomPublicKey);
+            var userPk = converters.hexStringToByteArray(userPkHex);
+            var nonce = calcNonce(userPkHex);
+            //
+            userPrivateKey = converters.hexStringToByteArray(userPrivateKey);
+
+            var sharedKey = NRS.getSharedKey(userPrivateKey, commomPublicKey, nonce);
+            sharedKey = converters.byteArrayToHexString(sharedKey);
+            sharedKey = "f" + sharedKey.slice(0, 23);
+            return sharedKey;
+        }
+
+        function loadUserSec() {
+            var secAres = document.querySelector('#secret');
+            var sec = localStorage.getItem('userSec');
+            secAres.value = sec;
+        }
+
+        function login() {
+            var secAres = document.querySelector('#secret');
+            var userSec = secAres.value;
+            if (userSec) {
+                localStorage.setItem('userSec', userSec);
+                var userSecHex = converters.stringToHexString(userSec);
+                var pubHex = NRS.getPublicKey(userSecHex);
+                //var phex2 = NRS.getPublicKey(userSec);
+                var peerTokenHex = createSharedKey(userSec, pubHex);
+                //
+                var rsId = NRS.getAccountId(userSec);
+                var address = new NxtAddress();
+                if (address.set(rsId)) {
+                    rsId = address.toString();
+                }
+                //create peerid
+                var peerId = getPublicKeySlice(pubHex) + peerTokenHex;
+                //console.log('userSec=' + userSec + " pubHex=" + pubHex + " peerId=" + peerId);
+                remote.getGlobal('vgoAccount').userSecHex = userSecHex;
+
+                var act = { userSecHex: userSecHex, peerId: peerId, rsId: rsId, pk: pubHex };
+
+                vgoDB.saveAccount(config.ACCOUNT_CACHE, userSecHex, pubHex, rsId, peerId, () => {
+                    ipcRenderer.send('on-login', peerId, userSecHex)
+                    ipcRenderer.send('mainHtml', pubHex, rsId, act)
+                });
+            } else {
+
+            }
+        }
+
+
+
+        function switchLogin(type) {
+            console.log(type)
+            let iddiv = document.querySelector("#iddiv");
+            let secdiv = document.querySelector("#secdiv");
+            //  
+            let idbtn = document.querySelector("#idbtn");
+            let secbtn = document.querySelector("#secbtn");
+
+            if (type == 'id') {
+                iddiv.setAttribute("style", "visibility: visible;")
+                secdiv.setAttribute("style", "display: none;")
+                //
+                secbtn.setAttribute("class", 'btn btn-info active');
+                idbtn.setAttribute("class", 'btn btn-info');
+            } else if (type == 'sec') {
+                iddiv.setAttribute("style", "display: none;")
+                secdiv.setAttribute("style", "visibility: visible;")
+                //
+                idbtn.setAttribute("class", 'btn btn-info active');
+                secbtn.setAttribute("class", 'btn btn-info');
+            }
+        }
+
+        function showNewAccount() {
+            let loginDiv = document.querySelector("#login_div");
+            loginDiv.setAttribute("style", "display: none;")
+            //
+            let create_div = document.querySelector("#create_div");
+            create_div.setAttribute("style", "visibility: visible;")
+        }
+
+        function switchToLogin(cancelled) {
+            let loginDiv = document.querySelector("#login_div");
+            loginDiv.setAttribute("style", "visibility: visible;")
+            //
+            let create_div = document.querySelector("#create_div");
+            create_div.setAttribute("style", "display: none;")
+            var secAres = document.querySelector('#secret');
+            if (!cancelled)
+                secAres.value = userSec;
+        }
+
+        function showRepeatTab() {
+            var createbtn = document.querySelector('#createbtn');
+            var repeatbtn = document.querySelector('#repeatbtn');
+            createbtn.setAttribute("class", 'btn btn-info active');
+            repeatbtn.setAttribute("class", 'btn btn-info');
+        }
+        function cancelNew() {
+            switchToLogin(true);
+        }
+
+        var userSec = "";
+
+        function textI18n(id, text) {
+            let element = document.querySelector("#" + id);
+            element.innerHTML = i18n.show(text);
+        }
+
+        function showHelpPage() {
+            console.log('showHelpPage  is not done yet');
+        }
+
+        //update i18n text
+        function uiupdate() {
+            loadUserSec();
+            updateLoginID();
+        }
+        function updateLoginID() {
+            var newSec = document.querySelector('#secret');
+                var rsId = document.querySelector('#loginId');
+                var vvv = NRS.getAccountId(newSec.value);
+                var address = new NxtAddress();
+                if (address.set(vvv)) {
+                    vvv = address.toString();
+                }
+                rsId.innerText = vvv;
+        }
+        function updateID() {
+            var newSec = document.querySelector('#newSecret');
+                var rsId = document.querySelector('#rsId');
+                var vvv = NRS.getAccountId(newSec.value);
+                var address = new NxtAddress();
+                if (address.set(vvv)) {
+                    vvv = address.toString();
+                }
+                rsId.innerText = vvv;
+        }
+        //uiupdate();
+    </script>
+</head>
+
+<body class="login-img3-body" onload="uiupdate()" style="background-image:url('./universe.jpg')">
+
+    <div class="container" >
+        <form class="login-form">
+            <div class="login-wrap">
+                <p id="titlep" class="login-img">
+                    <i>VGo Wallet</i>
+                </p>
+                <div id="login_div">
+                    <div>
+                        Account Id :
+                        <span id="loginId"></span>
+                    </div>
+                    <div class="input-group" id="secdiv">
+                        <div class="col-lg-20">
+                            <textarea name="" id="secret" onchange="updateLoginID()" class="form-control" cols="30" rows="5" placeholder="Type some letters as your VGO secret.The longer the better.（new account will be created for each new secret"></textarea>
+                        </div>
+                    </div>
+                    <button id="btn_login" class="btn btn-primary btn-lg btn-block" onclick="login()">Login</button>
+                </div>
+            </div>
+
+            <div id="create_div" style="display: none">
+                <div class="btn-row">
+                    <div class="btn-group" data-toggle="buttons">
+                        <label id="createbtn" class="btn btn-info">
+                            <input type="checkbox">Create new VGO Account</input>
+                        </label>
+                        <label id="repeatbtn" class="btn btn-info active">
+                            <input type="checkbox">Repeat secret</input>
+                        </label>
+                    </div>
+                </div>
+                <div class="input-group" id="secdiv">
+                    <div>
+                        Account Id :
+                        <span id="rsId"></span>
+                    </div>
+                    <div class="col-lg-20">
+                        <textarea name="" id="newSecret" onchange="updateID()" class="form-control" cols="30" rows="5" placeholder="Please ype at least 40 characters as your secret."></textarea>
+                    </div>
+                    <div>
+                        <span id="alert_msg" class="alert-danger">Please have a backup of your secret.All of your VGO Coins
+                            will be lost if your secret is forget.
+                    </div>
+                </div>
+                <button class="btn btn-primary btn-lg btn-block" onclick="createNewAccount()">OK</button>
+                <button class="btn btn-primary btn-lg btn-block" onclick="cancelNew()">Cancel</button>
+            </div>
+        </form>
+    </div>
+</body>
+
+</html>
