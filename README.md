@@ -52,7 +52,7 @@ eg. npm run package -- win32 --package=portable
 Note: Even with the `--package` option, the auto-update files (.nupkg for Windows,
 -darwin.zip for Mac) will always be produced.
 
-<a href="https://github.com/vg0vg0/vgoBinary/blob/master/dist/VGO-win32-x64.zip?raw=true">Download windows x64</a>
+<a href="https://github.com/vg0vg0/vgoBinary/blob/master/desktop/VGo-win32-x64.zip?raw=true">Download windows x64</a>
 
 <img src="https://raw.githubusercontent.com/vg0vg0/vgoDesktop/master/screenshot/1.jpg" height='350' width='650'/>
 <img src="https://raw.githubusercontent.com/vg0vg0/vgoDesktop/master/screenshot/2.jpg" height='350' width='650'/>
